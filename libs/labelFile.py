@@ -8,7 +8,8 @@ except ImportError:
 
 from base64 import b64encode, b64decode
 from libs.pascal_voc_io import PascalVocWriter
-from libs.yolo_io import YOLOWriter
+from libs.yolo_io import YoloWriter
+from libs.icdar_io import IcdarWriter
 from libs.pascal_voc_io import XML_EXT
 from libs.create_ml_io import CreateMLWriter
 from libs.create_ml_io import JSON_EXT
@@ -18,11 +19,12 @@ import sys
 
 
 class LabelFileFormat(Enum):
-    PASCAL_VOC = 1
-    YOLO = 2
+    ICDAR = 1
+    PASCAL_VOC = 2
     CREATE_ML = 3
-
-
+    YOLO = 4
+    
+    
 class LabelFileError(Exception):
     pass
 
@@ -97,7 +99,7 @@ class LabelFile(object):
             image.load(image_path)
         image_shape = [image.height(), image.width(),
                        1 if image.isGrayscale() else 3]
-        writer = YOLOWriter(img_folder_name, img_file_name,
+        writer = YoloWriter(img_folder_name, img_file_name,
                             image_shape, local_img_path=image_path)
         writer.verified = self.verified
 
@@ -110,6 +112,30 @@ class LabelFile(object):
             writer.add_bnd_box(bnd_box[0], bnd_box[1], bnd_box[2], bnd_box[3], label, difficult)
 
         writer.save(target_file=filename, class_list=class_list)
+        return
+
+    def save_icdar_format(self, filename, shapes, image_path, image_data, line_color=None, fill_color=None, database_src=None):
+        img_folder_path = os.path.dirname(image_path)
+        img_folder_name = os.path.split(img_folder_path)[-1]
+        img_file_name = os.path.basename(image_path)
+
+        if isinstance(image_data, QImage):
+            image = image_data
+        else:
+            image = QImage()
+            image.load(image_path)
+        image_shape = [image.height(), image.width(),
+                       1 if image.isGrayscale() else 3]
+        writer = IcdarWriter(folder_name=img_folder_name, filename=img_file_name,
+                             img_size=image_shape,local_img_path=image_path)
+        writer.verified = self.verified
+
+        for shape in shapes:
+            points = shape['points']
+            bnd_box = LabelFile.convert_points_to_bnd_box(points=points)
+            writer.add_bnd_box(*bnd_box)
+        
+        writer.save(target_file=filename)
         return
 
     def toggle_verify(self):

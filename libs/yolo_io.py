@@ -9,9 +9,10 @@ import codecs
 from libs.constants import DEFAULT_ENCODING
 
 TXT_EXT = '.txt'
+FORMAT = 'FORMAT_YOLO'
 ENCODE_METHOD = DEFAULT_ENCODING
 
-class YOLOWriter:
+class YoloWriter:
 
     def __init__(self, folder_name, filename, img_size, database_src='Unknown', local_img_path=None):
         self.folder_name = folder_name
@@ -65,7 +66,8 @@ class YOLOWriter:
             classes_file = os.path.join(os.path.dirname(os.path.abspath(target_file)), "classes.txt")
             out_class_file = open(classes_file, 'w')
 
-
+        # dataset format 
+        out_file.write(FORMAT + '\n')
         for box in self.box_list:
             class_index, x_center, y_center, w, h = self.bnd_box_to_yolo_line(box, class_list)
             # print (classIndex, x_center, y_center, w, h)
@@ -136,9 +138,13 @@ class YoloReader:
 
         return label, x_min, y_min, x_max, y_max
 
+    def get_dataset_format(): return FORMAT
+
     def parse_yolo_format(self):
         bnd_box_file = open(self.file_path, 'r')
         for bndBox in bnd_box_file:
+            if bndBox.strip() == FORMAT:
+                continue
             class_index, x_center, y_center, w, h = bndBox.strip().split(' ')
             label, x_min, y_min, x_max, y_max = self.yolo_line_to_shape(class_index, x_center, y_center, w, h)
 

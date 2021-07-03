@@ -45,6 +45,7 @@ from libs.toolBar import ToolBar
 from libs.pascal_voc_io import PascalVocReader
 from libs.pascal_voc_io import XML_EXT
 from libs.yolo_io import YoloReader
+from libs.icdar_io import IcdarReader
 from libs.yolo_io import TXT_EXT
 from libs.create_ml_io import CreateMLReader
 from libs.create_ml_io import JSON_EXT
@@ -247,6 +248,8 @@ class MainWindow(QMainWindow, WindowMixin):
                 return '&YOLO', 'format_yolo'
             elif format == LabelFileFormat.CREATE_ML:
                 return '&CreateML', 'format_createml'
+            elif format == LabelFileFormat.ICDAR:
+                return '&ICDAR', 'format_icdar'
 
         save_format = action(get_format_meta(self.label_file_format)[0],
                              self.change_format, 'Ctrl+',
@@ -520,6 +523,12 @@ class MainWindow(QMainWindow, WindowMixin):
 
     # Support Functions #
     def set_format(self, save_format):
+        # HVH
+        self.diffc_button.setEnabled(True)
+        self.single_class_mode.setChecked(False)
+        self.use_default_label_checkbox.setEnabled(True)
+        # HVH
+
         if save_format == FORMAT_PASCALVOC:
             self.actions.save_format.setText(FORMAT_PASCALVOC)
             self.actions.save_format.setIcon(new_icon("format_voc"))
@@ -538,13 +547,23 @@ class MainWindow(QMainWindow, WindowMixin):
             self.label_file_format = LabelFileFormat.CREATE_ML
             LabelFile.suffix = JSON_EXT
 
+        elif save_format == FORMAT_ICDAR:
+            self.actions.save_format.setText(FORMAT_ICDAR)
+            self.actions.save_format.setIcon(new_icon('format_icdar'))
+            self.label_file_format = LabelFileFormat.ICDAR
+            self.diffc_button.setDisabled(True)
+            self.use_default_label_checkbox.setDisabled(True)
+            self.single_class_mode.setChecked(True)
+
     def change_format(self):
-        if self.label_file_format == LabelFileFormat.PASCAL_VOC:
-            self.set_format(FORMAT_YOLO)
-        elif self.label_file_format == LabelFileFormat.YOLO:
+        if self.label_file_format == LabelFileFormat.ICDAR:
+            self.set_format(FORMAT_PASCALVOC)
+        elif self.label_file_format == LabelFileFormat.PASCAL_VOC:
             self.set_format(FORMAT_CREATEML)
         elif self.label_file_format == LabelFileFormat.CREATE_ML:
-            self.set_format(FORMAT_PASCALVOC)
+            self.set_format(FORMAT_YOLO)
+        elif self.label_file_format == LabelFileFormat.YOLO:
+            self.set_format(FORMAT_ICDAR)
         else:
             raise ValueError('Unknown label file format.')
         self.set_dirty()
@@ -721,7 +740,8 @@ class MainWindow(QMainWindow, WindowMixin):
         if not self.canvas.editing():
             return
         item = self.current_item()
-        if not item:
+        # HVH
+        if not item or self.label_file_format == LabelFileFormat.ICDAR:
             return
         text = self.label_dialog.pop_up(item.text())
         if text is not None:
@@ -876,6 +896,11 @@ class MainWindow(QMainWindow, WindowMixin):
                     annotation_file_path += JSON_EXT
                 self.label_file.save_create_ml_format(annotation_file_path, shapes, self.file_path, self.image_data,
                                                       self.label_hist, self.line_color.getRgb(), self.fill_color.getRgb())
+            elif self.label_file_format == LabelFileFormat.ICDAR:
+                if annotation_file_path[-4:].lower() != ".txt":
+                    annotation_file_path += TXT_EXT
+                self.label_file.save_icdar_format(filename=annotation_file_path, shapes=shapes, image_path=self.file_path,
+                                                  image_data=self.image_data, line_color=self.line_color.getRgb(), fill_color=self.fill_color.getRgb())
             else:
                 self.label_file.save(annotation_file_path, shapes, self.file_path, self.image_data,
                                      self.line_color.getRgb(), self.fill_color.getRgb())
@@ -930,6 +955,10 @@ class MainWindow(QMainWindow, WindowMixin):
                 self.label_dialog = LabelDialog(
                     parent=self, list_item=self.label_hist)
 
+            # HVH
+            if self.label_file_format == LabelFileFormat.ICDAR:
+                self.lastLabel = 'text'
+            # HVH
             # Sync single class mode from PR#106
             if self.single_class_mode.isChecked() and self.lastLabel:
                 text = self.lastLabel
@@ -1128,6 +1157,15 @@ class MainWindow(QMainWindow, WindowMixin):
         """
         return '[{} / {}]'.format(self.cur_img_idx + 1, self.img_count)
 
+    def get_dataset_format_from_annotation_file(self, file_path):
+        dataset_format = None
+        if os.path.isfile(file_path):
+            file_obj = open(file_path, 'r')
+            dataset_format = file_obj.readline().strip()
+        
+        file_obj.close()
+        return dataset_format
+
     def show_bounding_box_from_annotation_file(self, file_path):
         if self.default_save_dir is not None:
             basename = os.path.basename(os.path.splitext(file_path)[0])
@@ -1138,20 +1176,31 @@ class MainWindow(QMainWindow, WindowMixin):
             """Annotation file priority:
             PascalXML > YOLO
             """
-            if os.path.isfile(xml_path):
+            if os.path.isfile(xml_path) and self.label_file_format == LabelFileFormat.PASCAL_VOC:
                 self.load_pascal_xml_by_filename(xml_path)
             elif os.path.isfile(txt_path):
-                self.load_yolo_txt_by_filename(txt_path)
-            elif os.path.isfile(json_path):
+                dataset_format = self.get_dataset_format_from_annotation_file(file_path=txt_path) 
+                if self.label_file_format == LabelFileFormat.ICDAR and dataset_format == IcdarReader.get_dataset_format():
+                    self.load_icdar_txt_by_filename(txt_path=txt_path)
+                elif self.label_file_format == LabelFileFormat.YOLO and dataset_format == YoloReader.get_dataset_format():
+                    self.load_yolo_txt_by_filename(txt_path=txt_path)
+            elif os.path.isfile(json_path) and self.label_file_format == LabelFileFormat.CREATE_ML:
                 self.load_create_ml_json_by_filename(json_path, file_path)
 
         else:
             xml_path = os.path.splitext(file_path)[0] + XML_EXT
             txt_path = os.path.splitext(file_path)[0] + TXT_EXT
-            if os.path.isfile(xml_path):
+            json_path = os.path.splitext(file_path)[0] + JSON_EXT
+            if os.path.isfile(xml_path) and self.label_file_format == LabelFileFormat.PASCAL_VOC:
                 self.load_pascal_xml_by_filename(xml_path)
             elif os.path.isfile(txt_path):
-                self.load_yolo_txt_by_filename(txt_path)
+                dataset_format = self.get_dataset_format_from_annotation_file(file_path=txt_path) 
+                if self.label_file_format == LabelFileFormat.ICDAR and dataset_format == IcdarReader.get_dataset_format():
+                    self.load_icdar_txt_by_filename(txt_path=txt_path)
+                elif self.label_file_format == LabelFileFormat.YOLO and dataset_format == YoloReader.get_dataset_format():
+                    self.load_yolo_txt_by_filename(txt_path=txt_path)
+            elif os.path.isfile(json_path) and self.label_file_format == LabelFileFormat.CREATE_ML:
+                self.load_create_ml_json_by_filename(json_path, file_path)
 
     def resizeEvent(self, event):
         if self.canvas and not self.image.isNull()\
@@ -1397,12 +1446,15 @@ class MainWindow(QMainWindow, WindowMixin):
                 saved_path = os.path.join(ustr(self.default_save_dir), saved_file_name)
                 self._save_file(saved_path)
         else:
-            image_file_dir = os.path.dirname(self.file_path)
-            image_file_name = os.path.basename(self.file_path)
-            saved_file_name = os.path.splitext(image_file_name)[0]
-            saved_path = os.path.join(image_file_dir, saved_file_name)
-            self._save_file(saved_path if self.label_file
+            if self.file_path is not None:
+                image_file_dir = os.path.dirname(self.file_path)
+                image_file_name = os.path.basename(self.file_path)
+                saved_file_name = os.path.splitext(image_file_name)[0]
+                saved_path = os.path.join(image_file_dir, saved_file_name)
+                self._save_file(saved_path if self.label_file
                             else self.save_file_dialog(remove_ext=False))
+            else:
+                print("image file directory is None !!")
 
     def save_file_as(self, _value=False):
         assert not self.image.isNull(), "cannot save empty image"
@@ -1572,6 +1624,17 @@ class MainWindow(QMainWindow, WindowMixin):
         shapes = create_ml_parse_reader.get_shapes()
         self.load_labels(shapes)
         self.canvas.verified = create_ml_parse_reader.verified
+
+    def load_icdar_txt_by_filename(self, txt_path):
+        if self.file_path is None or os.path.isfile(txt_path) is False:
+            return
+        self.set_format(FORMAT_ICDAR)
+        t_icdar_parse_reader = IcdarReader(txt_path, self.image
+        )
+        shapes = t_icdar_parse_reader.get_shapes()
+        self.load_labels(shapes)
+        self.canvas.verified = t_icdar_parse_reader.verified
+
 
     def copy_previous_bounding_boxes(self):
         current_index = self.m_img_list.index(self.file_path)
