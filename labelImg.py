@@ -1273,6 +1273,8 @@ class MainWindow(QMainWindow, WindowMixin):
     def load_recent(self, filename):
         if self.may_continue():
             self.load_file(filename)
+            # HVH
+            self.cur_img_idx = self.m_img_list.index(filename)
 
     def scan_all_images(self, folder_path):
         extensions = ['.%s' % fmt.data().decode("ascii").lower() for fmt in QImageReader.supportedImageFormats()]
